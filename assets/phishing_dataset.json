@@ -1,0 +1,63 @@
+{
+  "phishing_keywords": [
+    "verify-account",
+    "confirm-identity",
+    "suspend",
+    "urgent-action",
+    "claim-prize",
+    "security-alert",
+    "unusual-activity",
+    "confirm-payment",
+    "update-billing",
+    "reset-password",
+    "verify-information",
+    "account-locked",
+    "free-money",
+    "winner",
+    "click-here-now",
+    "limited-time",
+    "act-now",
+    "congratulations"
+  ],
+  "suspicious_domains": [
+    "tk",
+    "ml",
+    "ga",
+    "cf",
+    "gq",
+    "xyz",
+    "top",
+    "loan",
+    "click",
+    "work"
+  ],
+  "known_phishing_urls": [
+    "paypal-verify.tk",
+    "amazon-update.ml",
+    "netflix-billing.ga",
+    "microsoft-secure.cf",
+    "facebook-security.gq",
+    "google-account-verify.xyz",
+    "apple-id-unlock.top",
+    "bank-secure-login.click"
+  ],
+  "safe_domains": [
+    "google.com",
+    "facebook.com",
+    "amazon.com",
+    "apple.com",
+    "microsoft.com",
+    "netflix.com",
+    "github.com",
+    "stackoverflow.com",
+    "wikipedia.org",
+    "youtube.com"
+  ],
+  "url_patterns": {
+    "ip_address": "suspicious",
+    "excessive_subdomains": "suspicious",
+    "misleading_domains": "dangerous",
+    "shortened_urls": "warning",
+    "https_missing": "warning"
+  }
+}
