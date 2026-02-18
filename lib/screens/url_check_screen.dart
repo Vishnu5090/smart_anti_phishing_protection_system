@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../services/phishing_detector.dart';
-import '../services/database_service.dart';
 import '../services/auth_service.dart';
+import '../services/database_service.dart';
+import '../services/phishing_detector.dart';
 import '../models/url_scan_result.dart';
-import 'dart:math' as math;
 
 class UrlCheckScreen extends StatefulWidget {
   final String? initialUrl;
@@ -15,41 +15,46 @@ class UrlCheckScreen extends StatefulWidget {
   State<UrlCheckScreen> createState() => _UrlCheckScreenState();
 }
 
-class _UrlCheckScreenState extends State<UrlCheckScreen> with SingleTickerProviderStateMixin {
-  final _urlController = TextEditingController();
-  final PhishingDetector _detector = PhishingDetector();
-  final DatabaseService _databaseService = DatabaseService();
+class _UrlCheckScreenState extends State<UrlCheckScreen> {
+  final TextEditingController _urlController = TextEditingController();
   final AuthService _authService = AuthService();
-  
+  final DatabaseService _databaseService = DatabaseService();
+  final PhishingDetector _detector = PhishingDetector();
+
   UrlScanResult? _scanResult;
   bool _isScanning = false;
-  late AnimationController _animationController;
-  late Animation<double> _scaleAnimation;
+  bool _isInitialized = false;
 
   @override
   void initState() {
     super.initState();
+    print('\n🔍 URL CHECK SCREEN INITIALIZED');
+    _initializeDetector();
     
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
-      vsync: this,
-    );
-
-    _scaleAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.elasticOut),
-    );
-
     if (widget.initialUrl != null) {
       _urlController.text = widget.initialUrl!;
-      _scanUrl();
+      Future.delayed(Duration(milliseconds: 500), () {
+        _scanUrl();
+      });
     }
   }
 
-  @override
-  void dispose() {
-    _urlController.dispose();
-    _animationController.dispose();
-    super.dispose();
+  Future<void> _initializeDetector() async {
+    print('🔧 Initializing phishing detector...');
+    try {
+      await _detector.initialize();
+      setState(() {
+        _isInitialized = true;
+      });
+      print('✅ Phishing detector ready\n');
+    } catch (e) {
+      print('❌ Error initializing detector: $e\n');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error initializing scanner: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _scanUrl() async {
@@ -60,89 +65,213 @@ class _UrlCheckScreenState extends State<UrlCheckScreen> with SingleTickerProvid
       return;
     }
 
+    if (!_isInitialized) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Scanner is still initializing...')),
+      );
+      return;
+    }
+
+    // Check if user is logged in
+    final currentUser = _authService.currentUser;
+    if (currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please login to scan URLs')),
+      );
+      return;
+    }
+
+    print('\n🔍 SCANNING URL...');
+    print('🔗 URL: ${_urlController.text.trim()}');
+    print('👤 User ID: ${currentUser.uid}'); // Debug log
+
     setState(() {
       _isScanning = true;
       _scanResult = null;
     });
 
     try {
-      String userId = _authService.currentUser?.uid ?? '';
-      UrlScanResult result = await _detector.scanUrl(_urlController.text.trim(), userId);
+      final url = _urlController.text.trim();
       
-      if (userId.isNotEmpty) {
-        await _databaseService.saveScanResult(result);
-      }
+      // FIXED: Pass userId to analyzeUrl
+      final result = await _detector.analyzeUrl(url, currentUser.uid);
+
+      print('✅ SCAN COMPLETE!');
+      print('🛡️ Security Level: ${result.securityLevel}');
+      print('📊 Security Score: ${result.securityScore}');
+      print('👤 Result User ID: ${result.userId}'); // Verify userId is set
+      print('⚠️ Threats: ${result.threats.length}\n');
 
       setState(() {
         _scanResult = result;
+        _isScanning = false;
       });
 
-      _animationController.forward(from: 0.0);
+      // Save scan result to database
+      print('💾 Saving scan to database...');
+      print('👤 Saving for user: ${currentUser.uid}');
+      await _databaseService.saveScanResult(currentUser.uid, result);
+      print('✅ Scan saved to database\n');
+      
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-      );
-    } finally {
+      print('❌ ERROR SCANNING URL: $e\n');
+      
       setState(() {
         _isScanning = false;
       });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error scanning URL: $e')),
+        );
+      }
     }
   }
 
   Future<void> _openUrl() async {
-    if (_scanResult == null) return;
+    if (_scanResult == null) {
+      print('⚠️ No scan result to open');
+      return;
+    }
 
-    bool? confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Open URL'),
-        content: Text(
-          _scanResult!.securityLevel == SecurityLevel.danger
-              ? 'This URL is dangerous! Are you sure you want to open it?'
-              : 'Do you want to open this URL?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+    print('\n🌐 ATTEMPTING TO OPEN URL...');
+    print('🔗 URL: ${_scanResult!.url}');
+    print('🛡️ Security Level: ${_scanResult!.securityLevel}');
+
+    // Show warning for dangerous/warning URLs
+    if (_scanResult!.securityLevel != SecurityLevel.safe) {
+      final shouldOpen = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(
+                Icons.warning,
+                color: _scanResult!.securityLevel == SecurityLevel.danger
+                    ? Colors.red
+                    : Colors.orange,
+              ),
+              const SizedBox(width: 12),
+              const Text('Security Warning'),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _scanResult!.securityLevel == SecurityLevel.danger
-                  ? Colors.red
-                  : Colors.blue,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'This URL has been flagged as ${_scanResult!.securityLevel == SecurityLevel.danger ? "DANGEROUS" : "SUSPICIOUS"}.',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              if (_scanResult!.threats.isNotEmpty) ...[
+                const Text(
+                  'Detected threats:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                ..._scanResult!.threats.map((threat) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.error, size: 16, color: Colors.red),
+                          const SizedBox(width: 8),
+                          Expanded(child: Text(threat)),
+                        ],
+                      ),
+                    )),
+                const SizedBox(height: 16),
+              ],
+              const Text('Are you sure you want to proceed?'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
             ),
-            child: const Text('Open'),
-          ),
-        ],
-      ),
-    );
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Open Anyway'),
+            ),
+          ],
+        ),
+      );
 
-    if (confirm == true) {
-      try {
-        final Uri uri = Uri.parse(_scanResult!.url);
-        if (await canLaunchUrl(uri)) {
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-          
-          String userId = _authService.currentUser?.uid ?? '';
-          if (userId.isNotEmpty) {
-            await _databaseService.markUrlAsOpened(userId, _scanResult!.url);
-          }
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to open URL: $e')),
+      if (shouldOpen != true) {
+        print('❌ User cancelled opening URL\n');
+        return;
+      }
+    }
+
+    // Open the URL
+    try {
+      String urlToOpen = _scanResult!.url;
+      
+      // Ensure URL has protocol
+      if (!urlToOpen.startsWith('http://') && !urlToOpen.startsWith('https://')) {
+        urlToOpen = 'https://$urlToOpen';
+      }
+      
+      print('🔗 Final URL to open: $urlToOpen');
+      
+      final uri = Uri.parse(urlToOpen);
+      
+      // Try to launch
+      bool launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      
+      if (launched) {
+        print('✅ URL opened successfully in browser\n');
+
+        // Update scan result to mark as opened
+        final currentUser = _authService.currentUser;
+        if (currentUser != null) {
+          final updatedResult = UrlScanResult(
+            url: _scanResult!.url,
+            securityLevel: _scanResult!.securityLevel,
+            securityScore: _scanResult!.securityScore,
+            threats: _scanResult!.threats,
+            scannedAt: _scanResult!.scannedAt,
+            wasOpened: true,
+            userId: currentUser.uid, // Ensure userId is set
           );
+          
+          setState(() {
+            _scanResult = updatedResult;
+          });
+
+          // Save updated result
+          await _databaseService.saveScanResult(currentUser.uid, updatedResult);
+          print('✅ Updated scan result saved\n');
         }
+      } else {
+        print('❌ Failed to launch URL\n');
+        throw 'Could not launch URL';
+      }
+      
+    } catch (e) {
+      print('❌ ERROR OPENING URL: $e\n');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Cannot open this URL: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
 
   Color _getSecurityColor() {
     if (_scanResult == null) return Colors.grey;
-    
     switch (_scanResult!.securityLevel) {
       case SecurityLevel.safe:
         return Colors.green;
@@ -154,8 +283,7 @@ class _UrlCheckScreenState extends State<UrlCheckScreen> with SingleTickerProvid
   }
 
   IconData _getSecurityIcon() {
-    if (_scanResult == null) return Icons.security;
-    
+    if (_scanResult == null) return Icons.search;
     switch (_scanResult!.securityLevel) {
       case SecurityLevel.safe:
         return Icons.check_circle;
@@ -166,396 +294,251 @@ class _UrlCheckScreenState extends State<UrlCheckScreen> with SingleTickerProvid
     }
   }
 
+  String _getSecurityText() {
+    if (_scanResult == null) return 'Not Scanned';
+    switch (_scanResult!.securityLevel) {
+      case SecurityLevel.safe:
+        return 'SAFE';
+      case SecurityLevel.warning:
+        return 'WARNING';
+      case SecurityLevel.danger:
+        return 'DANGER';
+    }
+  }
+
+  Widget _buildResultCard() {
+    if (_scanResult == null) return const SizedBox.shrink();
+
+    final color = _getSecurityColor();
+    final icon = _getSecurityIcon();
+    final text = _getSecurityText();
+
+    return Card(
+      elevation: 8,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: color, width: 3),
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              color.withOpacity(0.1),
+              color.withOpacity(0.05),
+            ],
+          ),
+        ),
+        child: Column(
+          children: [
+            // Security Icon
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.2),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                size: 64,
+                color: color,
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Security Status
+            Text(
+              text,
+              style: TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // Security Score
+            Text(
+              'Security Score: ${_scanResult!.securityScore.toInt()}',
+              style: TextStyle(
+                fontSize: 18,
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Score Meter
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: LinearProgressIndicator(
+                value: _scanResult!.securityScore / 100,
+                minHeight: 20,
+                backgroundColor: Colors.grey[200],
+                valueColor: AlwaysStoppedAnimation<Color>(color),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Threats List
+            if (_scanResult!.threats.isNotEmpty) ...[
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Detected Threats:',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              ...(_scanResult!.threats.map((threat) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.error, size: 20, color: Colors.red[700]),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            threat,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.red[700],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ))),
+              const SizedBox(height: 16),
+            ],
+
+            // Action Button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _openUrl,
+                icon: const Icon(Icons.open_in_browser),
+                label: Text(
+                  _scanResult!.securityLevel == SecurityLevel.safe
+                      ? 'Open URL'
+                      : 'Open Anyway',
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: color,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('URL Scanner'),
-        backgroundColor: Colors.blue.shade700,
-        elevation: 0,
+        title: const Text('Scan URL'),
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Colors.blue.shade700, Colors.white],
-          ),
-        ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Input Section
-                Card(
-                  elevation: 4,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Enter URL to Scan',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey.shade800,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: _urlController,
-                          decoration: InputDecoration(
-                            hintText: 'https://example.com',
-                            prefixIcon: const Icon(Icons.link),
-                            suffixIcon: _urlController.text.isNotEmpty
-                                ? IconButton(
-                                    icon: const Icon(Icons.clear),
-                                    onPressed: () {
-                                      setState(() {
-                                        _urlController.clear();
-                                        _scanResult = null;
-                                      });
-                                    },
-                                  )
-                                : null,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(
-                                color: Colors.blue.shade700,
-                                width: 2,
-                              ),
-                            ),
-                          ),
-                          onChanged: (value) => setState(() {}),
-                          onSubmitted: (_) => _scanUrl(),
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 50,
-                          child: ElevatedButton.icon(
-                            onPressed: _isScanning ? null : _scanUrl,
-                            icon: _isScanning
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                    ),
-                                  )
-                                : const Icon(Icons.search),
-                            label: Text(
-                              _isScanning ? 'Scanning...' : 'Scan URL',
-                              style: const TextStyle(fontSize: 16),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue.shade700,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                
-                const SizedBox(height: 24),
-                
-                // Results Section
-                if (_scanResult != null) ...[
-                  ScaleTransition(
-                    scale: _scaleAnimation,
-                    child: Card(
-                      elevation: 6,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              _getSecurityColor().withOpacity(0.1),
-                              _getSecurityColor().withOpacity(0.05),
-                            ],
-                          ),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            children: [
-                              // Security Meter
-                              _buildSecurityMeter(),
-                              const SizedBox(height: 24),
-                              
-                              // Security Level
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 20,
-                                  vertical: 12,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: _getSecurityColor(),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      _getSecurityIcon(),
-                                      color: Colors.white,
-                                      size: 28,
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Text(
-                                      _scanResult!.securityLevelText.toUpperCase(),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 24,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              
-                              // Description
-                              Text(
-                                _scanResult!.securityDescription,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.grey.shade700,
-                                ),
-                              ),
-                              const SizedBox(height: 24),
-                              
-                              // Threats
-                              if (_scanResult!.threats.isNotEmpty) ...[
-                                Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: Text(
-                                    'Detected Threats:',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.grey.shade800,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                ..._scanResult!.threats.map((threat) => Padding(
-                                      padding: const EdgeInsets.only(bottom: 8),
-                                      child: Row(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Icon(
-                                            Icons.warning_amber,
-                                            color: Colors.orange,
-                                            size: 20,
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: Text(
-                                              threat,
-                                              style: TextStyle(
-                                                fontSize: 14,
-                                                color: Colors.grey.shade700,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    )),
-                                const SizedBox(height: 16),
-                              ],
-                              
-                              // Action Buttons
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: () {
-                                        setState(() {
-                                          _scanResult = null;
-                                          _urlController.clear();
-                                        });
-                                      },
-                                      icon: const Icon(Icons.refresh),
-                                      label: const Text('Scan Another'),
-                                      style: OutlinedButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                        side: BorderSide(color: Colors.blue.shade700),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: ElevatedButton.icon(
-                                      onPressed: _openUrl,
-                                      icon: const Icon(Icons.open_in_browser),
-                                      label: const Text('Open URL'),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: _getSecurityColor(),
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Info Card
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.blue[700]),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Enter a URL to check for phishing threats',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[700],
                         ),
                       ),
                     ),
-                  ),
-                ],
-                
-                const SizedBox(height: 24),
-                
-                // Info Card
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.info, color: Colors.blue.shade700),
-                            const SizedBox(width: 8),
-                            Text(
-                              'How it works',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.grey.shade800,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Our AI-powered system analyzes URLs for:\n'
-                          '• Known phishing patterns\n'
-                          '• Suspicious domain names\n'
-                          '• Security protocols\n'
-                          '• URL structure anomalies',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade600,
-                            height: 1.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          ),
+            const SizedBox(height: 24),
+
+            // URL Input
+            TextField(
+              controller: _urlController,
+              decoration: InputDecoration(
+                labelText: 'Enter URL',
+                hintText: 'https://example.com',
+                prefixIcon: const Icon(Icons.link),
+                suffixIcon: _urlController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          setState(() {
+                            _urlController.clear();
+                            _scanResult = null;
+                          });
+                        },
+                      )
+                    : null,
+              ),
+              keyboardType: TextInputType.url,
+              textInputAction: TextInputAction.go,
+              onSubmitted: (_) => _scanUrl(),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 24),
+
+            // Scan Button
+            ElevatedButton.icon(
+              onPressed: _isScanning || !_isInitialized ? null : _scanUrl,
+              icon: _isScanning
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.search),
+              label: Text(_isScanning ? 'Scanning...' : 'Scan URL'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+            ),
+            const SizedBox(height: 32),
+
+            // Result Card
+            _buildResultCard(),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildSecurityMeter() {
-    return SizedBox(
-      width: 200,
-      height: 200,
-      child: CustomPaint(
-        painter: SecurityMeterPainter(
-          score: _scanResult!.securityScore,
-          color: _getSecurityColor(),
-        ),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                '${_scanResult!.securityScore.toStringAsFixed(0)}',
-                style: TextStyle(
-                  fontSize: 48,
-                  fontWeight: FontWeight.bold,
-                  color: _getSecurityColor(),
-                ),
-              ),
-              Text(
-                'Security Score',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey.shade600,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class SecurityMeterPainter extends CustomPainter {
-  final double score;
-  final Color color;
-
-  SecurityMeterPainter({required this.score, required this.color});
-
   @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 10;
-
-    // Background circle
-    final bgPaint = Paint()
-      ..color = Colors.grey.shade200
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 15;
-
-    canvas.drawCircle(center, radius, bgPaint);
-
-    // Progress arc
-    final progressPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 15
-      ..strokeCap = StrokeCap.round;
-
-    final sweepAngle = (score / 100) * 2 * math.pi;
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      -math.pi / 2,
-      sweepAngle,
-      false,
-      progressPaint,
-    );
+  void dispose() {
+    _urlController.dispose();
+    super.dispose();
   }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

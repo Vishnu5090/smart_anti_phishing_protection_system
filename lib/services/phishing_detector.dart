@@ -16,14 +16,19 @@ class PhishingDetector {
       final data = json.decode(response);
       _dataset = PhishingDataset.fromJson(data);
       _isInitialized = true;
+      print('✅ Phishing detector initialized');
     } catch (e) {
-      print('Error loading dataset: $e');
+      print('❌ Error loading dataset: $e');
       throw 'Failed to load phishing database';
     }
   }
 
-  // Main URL scanning method
+  // Main URL scanning method - FIXED to properly use userId
   Future<UrlScanResult> scanUrl(String url, String userId) async {
+    print('\n🔍 SCANNING URL IN DETECTOR...');
+    print('🔗 URL: $url');
+    print('👤 User ID: $userId'); // Debug log
+    
     if (!_isInitialized) {
       await initialize();
     }
@@ -148,19 +153,30 @@ class PhishingDetector {
       level = SecurityLevel.danger;
     }
 
+    print('✅ SCAN COMPLETE');
+    print('🛡️ Security Level: $level');
+    print('📊 Score: $score');
+    print('👤 Saving with User ID: $userId\n');
+
     return UrlScanResult(
       url: url,
       securityLevel: level,
       securityScore: score,
       threats: threats,
       scannedAt: DateTime.now(),
-      userId: userId,
+      userId: userId, // PROPERLY SET userId
+      wasOpened: false,
     );
   }
 
   // Quick check without full scan
-  Future<bool> isUrlSafe(String url) async {
-    final result = await scanUrl(url, '');
+  Future<bool> isUrlSafe(String url, String userId) async {
+    final result = await scanUrl(url, userId);
     return result.securityLevel == SecurityLevel.safe;
+  }
+
+  // UI-friendly wrapper - FIXED to accept userId parameter
+  Future<UrlScanResult> analyzeUrl(String url, String userId) async {
+    return await scanUrl(url, userId);
   }
 }
