@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "628880562398",
+    "project_id": "smart-antiphishing",
+    "storage_bucket": "smart-antiphishing.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:628880562398:android:1b821cb7aa38c24f5c0a4f",
+        "android_client_info": {
+          "package_name": "com.antiphishing.smart"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBWk7JJP1m4B5B4WfrLIHXAPrzRf7wg-_8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

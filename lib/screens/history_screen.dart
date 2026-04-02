@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/auth_service.dart';
 import '../models/url_scan_result.dart';
@@ -16,385 +15,274 @@ class _HistoryScreenState extends State<HistoryScreen> {
   final AuthService _authService = AuthService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  @override
-  void initState() {
-    super.initState();
-    print('\n📜 HISTORY SCREEN INITIALIZED');
-  }
-
+  // Helper for consistent colors across the app
   Color _getSecurityColor(SecurityLevel level) {
     switch (level) {
-      case SecurityLevel.safe:
-        return Colors.green;
-      case SecurityLevel.warning:
-        return Colors.orange;
-      case SecurityLevel.danger:
-        return Colors.red;
+      case SecurityLevel.safe: return Colors.green.shade600;
+      case SecurityLevel.warning: return Colors.orange.shade700;
+      case SecurityLevel.danger: return Colors.red.shade600;
     }
   }
 
   IconData _getSecurityIcon(SecurityLevel level) {
     switch (level) {
-      case SecurityLevel.safe:
-        return Icons.check_circle;
-      case SecurityLevel.warning:
-        return Icons.warning;
-      case SecurityLevel.danger:
-        return Icons.dangerous;
+      case SecurityLevel.safe: return Icons.check_circle_rounded;
+      case SecurityLevel.warning: return Icons.warning_rounded;
+      case SecurityLevel.danger: return Icons.gpp_bad_rounded;
     }
-  }
-
-  String _getSecurityText(SecurityLevel level) {
-    switch (level) {
-      case SecurityLevel.safe:
-        return 'SAFE';
-      case SecurityLevel.warning:
-        return 'WARNING';
-      case SecurityLevel.danger:
-        return 'DANGER';
-    }
-  }
-
-  Widget _buildHistoryItem(UrlScanResult result) {
-    final color = _getSecurityColor(result.securityLevel);
-    final icon = _getSecurityIcon(result.securityLevel);
-    final text = _getSecurityText(result.securityLevel);
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: () => _showDetailsDialog(result),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Security Badge & Score
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: color,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(icon, size: 14, color: Colors.white),
-                        const SizedBox(width: 6),
-                        Text(
-                          text,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    'Score: ${result.securityScore.toInt()}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: color,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              // URL
-              Text(
-                result.url,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w500),
-              ),
-              const SizedBox(height: 8),
-
-              // Timestamp
-              Row(
-                children: [
-                  Icon(Icons.access_time, size: 14, color: Colors.grey[600]),
-                  const SizedBox(width: 4),
-                  Text(
-                    DateFormat('MMM dd, yyyy • hh:mm a').format(result.scannedAt),
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                  ),
-                ],
-              ),
-
-              // Threats
-              if (result.threats.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: result.threats.take(2).map((threat) {
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.red[50],
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.red[200]!),
-                      ),
-                      child: Text(
-                        threat,
-                        style: TextStyle(fontSize: 10, color: Colors.red[700]),
-                      ),
-                    );
-                  }).toList(),
-                ),
-                if (result.threats.length > 2)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      '+${result.threats.length - 2} more',
-                      style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                    ),
-                  ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showDetailsDialog(UrlScanResult result) {
-    final color = _getSecurityColor(result.securityLevel);
-    final icon = _getSecurityIcon(result.securityLevel);
-    final text = _getSecurityText(result.securityLevel);
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(icon, color: color),
-            const SizedBox(width: 12),
-            const Text('Scan Details'),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Security Level
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: color),
-                ),
-                child: Column(
-                  children: [
-                    Icon(icon, size: 40, color: color),
-                    const SizedBox(height: 8),
-                    Text(
-                      text,
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: color,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Score: ${result.securityScore.toInt()}',
-                      style: TextStyle(color: color),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // URL
-              const Text('URL:', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              SelectableText(result.url),
-              const SizedBox(height: 16),
-
-              // Timestamp
-              const Text('Scanned:', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              Text(DateFormat('MMMM dd, yyyy • hh:mm:ss a').format(result.scannedAt)),
-              const SizedBox(height: 16),
-
-              // Status
-              const Text('Status:', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              Text(
-                result.wasOpened ? 'URL was opened' : 'URL was blocked',
-                style: TextStyle(
-                  color: result.wasOpened ? Colors.orange : Colors.green,
-                ),
-              ),
-
-              // Threats
-              if (result.threats.isNotEmpty) ...[
-                const SizedBox(height: 16),
-                const Text('Threats:', style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                ...result.threats.map((threat) => Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(Icons.error, size: 16, color: Colors.red[700]),
-                          const SizedBox(width: 8),
-                          Expanded(child: Text(threat)),
-                        ],
-                      ),
-                    )),
-              ],
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     final currentUser = _authService.currentUser;
 
-    if (currentUser == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Scan History')),
-        body: const Center(child: Text('No user logged in')),
-      );
-    }
-
-    print('👤 Building history for user: ${currentUser.uid}');
-
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Scan History'),
+        title: const Text('Scan History', 
+          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 22)),
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.black,
+        centerTitle: false,
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: _firestore
-            .collection('scan_history')
-            .where('userId', isEqualTo: currentUser.uid)
-            .snapshots(),
-        builder: (context, snapshot) {
-          print('\n📦 HISTORY STREAM STATE: ${snapshot.connectionState}');
-          
-          // Loading
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+      body: currentUser == null
+          ? const Center(child: Text('Please log in to view history'))
+          : StreamBuilder<QuerySnapshot>(
+              stream: _firestore
+                  .collection('scan_history')
+                  .where('userId', isEqualTo: currentUser.uid)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return _buildEmptyState();
+                }
+
+                final docs = snapshot.data!.docs.toList();
+                // Sort client-side to keep the UX snappy without complex Firebase indices
+                docs.sort((a, b) {
+                  final aTime = (a.data() as Map<String, dynamic>)['scannedAt'] as Timestamp?;
+                  final bTime = (b.data() as Map<String, dynamic>)['scannedAt'] as Timestamp?;
+                  return (bTime ?? Timestamp.now()).compareTo(aTime ?? Timestamp.now());
+                });
+
+                return ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  itemCount: docs.length + 1, // +1 for the header
+                  itemBuilder: (context, index) {
+                    if (index == 0) return _buildHistoryHeader(docs.length);
+                    
+                    try {
+                      final data = docs[index - 1].data() as Map<String, dynamic>;
+                      final result = UrlScanResult.fromMap(data);
+                      return _buildHistoryCard(result);
+                    } catch (e) {
+                      return const SizedBox.shrink();
+                    }
+                  },
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _buildHistoryHeader(int count) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24, top: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Recent Activities',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blue.shade800, letterSpacing: 1.2),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'You have performed $count scans',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.black.withOpacity(0.8)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryCard(UrlScanResult result) {
+    final color = _getSecurityColor(result.securityLevel);
+    final icon = _getSecurityIcon(result.securityLevel);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: Colors.grey.shade100),
+      ),
+      child: InkWell(
+        onTap: () => _showDetailsBottomSheet(result),
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              // Icon Badge
+              Container(
+                height: 50,
+                width: 50,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: color, size: 28),
+              ),
+              const SizedBox(width: 16),
+              // Content
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      result.url,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      DateFormat('MMM dd, yyyy • hh:mm a').format(result.scannedAt),
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+              ),
+              // Score indicator
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Loading scan history...'),
+                  Text(
+                    '${result.securityScore.toInt()}%',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: color),
+                  ),
+                  const Text('SCORE', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.grey)),
                 ],
               ),
-            );
-          }
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-          // Error
-          if (snapshot.hasError) {
-            print('❌ HISTORY ERROR: ${snapshot.error}');
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.error_outline, size: 64, color: Colors.red),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Error Loading History',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      snapshot.error.toString(),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
+  void _showDetailsBottomSheet(UrlScanResult result) {
+    final color = _getSecurityColor(result.securityLevel);
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Icon(_getSecurityIcon(result.securityLevel), color: color, size: 32),
+                const SizedBox(width: 12),
+                const Text('Scan Report', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+              ],
+            ),
+            const SizedBox(height: 24),
+            _buildInfoRow('Analyzed URL', result.url, isSelectable: true),
+            _buildInfoRow('Security Level', result.securityLevel.name.toUpperCase(), valueColor: color),
+            _buildInfoRow('Safety Score', '${result.securityScore.toInt()}%'),
+            _buildInfoRow('Detection Time', DateFormat('MMMM dd, yyyy • hh:mm:ss a').format(result.scannedAt)),
+            
+            if (result.threats.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              const Text('Threats Detected', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: result.threats.map((t) => Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.red.shade100)),
+                  child: Text(t, style: TextStyle(color: Colors.red.shade700, fontSize: 12, fontWeight: FontWeight.bold)),
+                )).toList(),
               ),
-            );
-          }
-
-          // No data
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            print('ℹ️ NO HISTORY FOUND');
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.history, size: 80, color: Colors.grey[300]),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'No Scan History',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Start scanning URLs to build your history',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey[600]),
-                    ),
-                  ],
+            ],
+            const SizedBox(height: 32),
+            SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.grey.shade100,
+                  foregroundColor: Colors.black87,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
+                child: const Text('Dismiss', style: TextStyle(fontWeight: FontWeight.bold)),
               ),
-            );
-          }
+            )
+          ],
+        ),
+      ),
+    );
+  }
 
-          // Parse documents
-          final docs = snapshot.data!.docs;
-          print('✅ FOUND ${docs.length} SCANS');
+  Widget _buildInfoRow(String label, String value, {bool isSelectable = false, Color? valueColor}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+          const SizedBox(height: 4),
+          isSelectable 
+            ? SelectableText(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: valueColor ?? Colors.black87))
+            : Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: valueColor ?? Colors.black87)),
+        ],
+      ),
+    );
+  }
 
-          // Sort by timestamp (client-side to avoid index requirement)
-          final sortedDocs = docs.toList();
-          sortedDocs.sort((a, b) {
-            try {
-              final aData = a.data() as Map<String, dynamic>;
-              final bData = b.data() as Map<String, dynamic>;
-              final aTime = aData['scannedAt'] as Timestamp?;
-              final bTime = bData['scannedAt'] as Timestamp?;
-              if (aTime == null || bTime == null) return 0;
-              return bTime.compareTo(aTime); // Descending order
-            } catch (e) {
-              return 0;
-            }
-          });
-
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: sortedDocs.length,
-            itemBuilder: (context, index) {
-              try {
-                final data = sortedDocs[index].data() as Map<String, dynamic>;
-                final result = UrlScanResult.fromMap(data);
-                
-                return _buildHistoryItem(result);
-              } catch (e) {
-                print('⚠️ ERROR PARSING SCAN: $e');
-                return const SizedBox.shrink();
-              }
-            },
-          );
-        },
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(color: Colors.grey.shade50, shape: BoxShape.circle),
+            child: Icon(Icons.history_rounded, size: 64, color: Colors.grey.shade300),
+          ),
+          const SizedBox(height: 24),
+          const Text('No Scan History', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 8),
+          const Text('Your URL scan history will appear here.', style: TextStyle(color: Colors.grey)),
+        ],
       ),
     );
   }
